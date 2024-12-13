@@ -8,20 +8,22 @@ from typing import List, Tuple
 
 class BulletPointExtractor:
     def __init__(self, api_key: str = None):
-        self.api_key = api_key or os.getenv('OPENAI_API_KEY')
+        self.api_key = ""
         if not self.api_key:
             raise ValueError("Need an OpenAI API key!")
 
         self.client = OpenAI(
-            api_key = "")
+            api_key=self.api_key)
         self.pattern = r'^\s*[•\-\*∙◦⚬⦁⦾⦿→▪︎▸◆◇○●■□]'
 
-    def extract_text_from_file(self, file_path: str) -> str:
+    def extract_text_from_file(self, file_path: str, page_num: int = None) -> str:
         file_path = Path(file_path)
 
         if file_path.suffix.lower() == '.pdf':
             with open(file_path, 'rb') as file:
                 pdf_reader = PyPDF2.PdfReader(file)
+                if page_num is not None:
+                    return pdf_reader.pages[page_num - 1].extract_text()
                 return '\n'.join(page.extract_text() for page in pdf_reader.pages)
 
         elif file_path.suffix.lower() == '.txt':
@@ -91,9 +93,25 @@ Original text:
             return regex_bullets, []
 
     async def extract_bullet_points(self, file_path: str) -> Tuple[List[str], List[str]]:
-        text = self.extract_text_from_file(file_path)
-        bullets = self.regex_extract_bullets(text)
-        return await self.llm_verify_and_enhance(text, bullets)
+        if Path(file_path).suffix.lower() == '.pdf':
+            with open(file_path, 'rb') as file:
+                pdf_reader = PyPDF2.PdfReader(file)
+                total_pages = len(pdf_reader.pages)
+                all_verified = []
+                all_new = []
+
+                for page_num in range(1, total_pages + 1):
+                    print(f"\nProcessing page {page_num} of {total_pages}...")
+                    text = self.extract_text_from_file(file_path, page_num)
+                    bullets = self.regex_extract_bullets(text)
+                    verified, new = await self.llm_verify_and_enhance(text, bullets)
+                    all_verified.extend(verified)
+                    all_new.extend(new)
+                return all_verified, all_new
+        else:
+            text = self.extract_text_from_file(file_path)
+            bullets = self.regex_extract_bullets(text)
+            return await self.llm_verify_and_enhance(text, bullets)
 
 
 async def main():
